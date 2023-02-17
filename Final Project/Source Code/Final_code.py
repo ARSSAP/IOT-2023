@@ -2,6 +2,7 @@
 import sys
 import busio 
 import adafruit_ads1x15.ads1115 as ADS
+from datetime import date, datetime
 from adafruit_ads1x15.analog_in import AnalogIn
 import board
 import time
@@ -9,6 +10,10 @@ import math
 import RPi.GPIO as GPIO
 import Adafruit_DHT
 import numpy as np
+from pymongo import MongoClient
+import Lcd_driver as lcd
+import pymongo
+import urllib 
 
 
 #variables
@@ -20,6 +25,10 @@ RESIST_LOAD = 1024
 SENSOR_VOLT = 5.0
 CONST_A = 116.6020682
 CONST_B = 2.769034857
+MONGODB_USER="ars"
+MONGODB_PASS="348261"
+MONGODB_DB = 'weather_monitoring_db'
+MONGODB_COLLECTION = 'sensor_data'
 
 
 #for weather comparisions
@@ -45,6 +54,18 @@ channel1 = AnalogIn(ads, ADS.P1) # For Turbidity sensor
 channel2 = AnalogIn(ads, ADS.P2) # For TDS sensor
 channel3 = AnalogIn(ads, ADS.P3) # For WaterFlow sensor
 
+# Connection string for MongoDB
+def mongo_db_connection():
+    CONNECTION_STRING = "mongodb+srv://pi4:"+MONGODB_PASS+"@cluster0.wbrzjmu.mongodb.net/test"
+    
+    try:
+        client = MongoClient(CONNECTION_STRING)
+        dbname = client[MONGODB_DB]
+        collection_name = dbname[MONGODB_COLLECTION]
+        print("Database connected successfully!")
+        return collection_name 
+    except:
+        print("Database could not be connected!")
 
 #Startup Function
 def StartMainFunc():
@@ -52,6 +73,12 @@ def StartMainFunc():
     print("       WEATHER MONITORING SYSTEM       ")
     print("=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=")
 
+#Lcd Driver Function
+def displayLCD(LINE_,VALUE,ALIGN):
+    LINE_NUMBER = {1: lcd.LCD_LINE_1,2: lcd.LCD_LINE_2}
+    lcd.lcd_init()
+    lcd.lcd_byte(LINE_NUMBER[LINE_], lcd.LCD_CMD)
+    lcd.lcd_string(str(VALUE),ALIGN)
 
 #loader Function
 def loader():
@@ -111,8 +138,52 @@ while run:
     # Calculating Humidity
     HUM_VOL = SensorCaliberation(channel3.voltage,5)
     HUM_VAL = round(HUM_VOL + channel3.voltage,2)
-    print(str(HUM_VOL)+" : Humidity")
+    print(str(HUM_VAL)+" : Humidity")
+    time.sleep(5)
+    
+    #Display Variable Setup
+    LINE1="AQ:" + str(round(AQ_VAL,2)) + ", LDR:" + str(round(LDR_VAL,2))
+    LINE2="TEMP:" + str(round(TEM_CEL,2)) + ", HUM:" + str(round(HUM_VAL,2))
+
+    AQ_CHECK = AQ_VAL >= PH_STANDARD_RANGE[0] and PH_VAL <= PH_STANDARD_RANGE[1]
+    LDR_CHECK = LDR_VAL >= TUR_STANDARD_RANGE[0] and TUR_VAL <= TUR_STANDARD_RANGE[1]
+    TEM_CEL_CHECK = TEM_CEL >= TDS_STANDARD_RANGE[0] and TDS_VAL <= TDS_STANDARD_RANGE[1]
+    HUM_CHECK = HUM_VAL >= WF_STANDARD_RANGE[0] and WF_VAL <= WF_STANDARD_RANGE[1]
+
+    # IS_DRINKABLE = (IS_PH_OK and IS_TUR_OK and IS_TDS_OK)
+    # STATUS = "CLEAN" if IS_DRINKABLE else "POLLUTED"
+
+    #Database schema 
+    sensor_data = {
+            "airqlty_sensor_value" : str(AQ_VAL),
+            "lightdetection_sensor_value" : str(LDR_VAL),
+            "temperatureincel_sensor_value" : str(TEM_CEL),
+            "temeperatureinfar_sensor_value" : str(TEM_FAR),
+            "humidity_sensor_value" : str(HUM_VAL),
+            "status" : "ok",
+            "date_added":   datetime.now()
+            }
+
+    #Establisting Database Connection     
+    db =  mongo_db_connection()
     time.sleep(5)
 
+    print("Weather is ", STATUS)
+    displayLCD(1,"Weather: " + STATUS,1)
+    try:
+        db.insert_one(sensor_data)
+        print("Data logged successfully in db")
+    except:
+        print("Data not inserted in db")
 
-   
+    # Display on Lcd                                                                                                                                            
+    displayLCD(1,LINE1,1)
+    displayLCD(2,LINE2,2)
+    
+
+    #Stroing local logs
+    logs = str(datetime.now()),": Air Quality: ",str(AQ_VAL),", Light Detection: ",str(LDR_VAL),", Temperature in Celcius: ",str(TEM_CEL),", Temperature in Farhenheit: ",str(TEM_FAR),", Humidity: ",str(HUM_VAL) + "\n"
+    print(logs)
+    file = open("logs.txt","a")
+    file.writelines(logs)
+    file.close()
