@@ -13,7 +13,7 @@ import requests
 from requests.structures import CaseInsensitiveDict
 import os
 from time import sleep
-import lcd
+
 
 from pymongo import MongoClient
 import pymongo
@@ -102,6 +102,7 @@ channel3 = AnalogIn(ads, ADS.P3) # For WaterFlow sensor
 
 
 run = True
+
 
 while run:
  
